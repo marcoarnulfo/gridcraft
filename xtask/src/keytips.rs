@@ -11,6 +11,8 @@ use std::fs;
 use std::path::Path;
 
 /// "File" is not a ribbon tab: its sequence opens the Backstage view.
+/// The File view pages a `page` entry can show (their `ui.backstage` ids).
+const PAGES: &[&str] = &["home", "new", "open", "info", "saveAs", "print", "export", "options"];
 const TABS: &[&str] = &["File", "Home", "Insert", "Draw", "Page Layout", "Formulas", "Data", "Review", "View", "Automate"];
 
 /// Commands whose empty-params behaviour depends on the host machine (e.g. the
@@ -45,6 +47,8 @@ struct Entry {
     kind: String,
     target: String,
     pending: bool,
+    /// A control whose own handler alerts in the bare test harness (Print without a printer).
+    alerts: bool,
     excel: String,
     note: String,
 }
@@ -130,6 +134,10 @@ fn parse_and_probe(source: &str) -> Result<(Vec<Entry>, Probe), String> {
         let kind = e.get("kind").and_then(|v| v.as_str()).ok_or_else(|| format!("{at}: missing `kind`"))?.to_string();
         let target = e.get("target").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let pending = e.get("pending").and_then(|v| v.as_bool()).unwrap_or(false);
+        let alerts = e.get("alerts").and_then(|v| v.as_bool()).unwrap_or(false);
+        if alerts && kind != "control" {
+            return Err(format!("{at}: `alerts` is only valid with kind `control`"));
+        }
         if pending && kind != "command" {
             return Err(format!("{at}: `pending` is only valid with kind `command`"));
         }
@@ -137,6 +145,11 @@ fn parse_and_probe(source: &str) -> Result<(Vec<Entry>, Probe), String> {
             "tab" => {
                 if target.is_empty() || !TABS.contains(&target.as_str()) {
                     return Err(format!("{at}: tab target {target:?} is not one of {TABS:?}"));
+                }
+            }
+            "page" => {
+                if !PAGES.contains(&target.as_str()) {
+                    return Err(format!("{at}: page target {target:?} is not one of {PAGES:?}"));
                 }
             }
             "command" | "dialog" | "control" => {
@@ -164,6 +177,7 @@ fn parse_and_probe(source: &str) -> Result<(Vec<Entry>, Probe), String> {
             kind,
             target,
             pending,
+            alerts,
             excel: e.get("excel").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             note: e.get("note").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         });
@@ -219,6 +233,7 @@ fn render_table(entries: &[Entry]) -> String {
     for e in entries {
         let value = match e.kind.as_str() {
             "tab" => format!("Entry::Tab({:?})", e.target),
+            "page" => format!("Entry::Page({:?})", e.target),
             "command" if e.pending => format!("Entry::Finish(Action::Pending({:?}))", e.target),
             "command" => format!("Entry::Finish(Action::Command({:?}))", e.target),
             "dialog" => format!("Entry::Finish(Action::Dialog({:?}))", e.target),
@@ -265,6 +280,11 @@ fn render_tests(entries: &[Entry], probe: &Probe) -> String {
                 "sequence(&mut h, {seq:?}, false);\n    assert!(h.state().backstage.is_some(), \"{seq} must open the File view\");\n    assert_eq!(h.state().keytips.prefix(), Some({seq:?}));",
                 seq = e.seq,
             ),
+            "page" => format!(
+                "sequence(&mut h, {seq:?}, false);\n    assert_eq!(h.state().backstage.as_ref().map(|b| b.page.id()), Some({page:?}), \"{seq} must show the {page} page\");\n    assert_eq!(h.state().keytips.prefix(), Some({seq:?}));",
+                seq = e.seq,
+                page = e.target,
+            ),
             "tab" => format!(
                 "sequence(&mut h, {seq:?}, false);\n    assert_eq!(h.state().ui.ribbon_tab, {tab:?}, \"{seq} must switch to the {tab} tab\");",
                 seq = e.seq,
@@ -295,6 +315,12 @@ fn render_tests(entries: &[Entry], probe: &Probe) -> String {
                 "sequence(&mut h, {seq:?}, false);\n    assert!(h.state().dialog.is_some(), \"{seq} must open the {dialog} dialog\");",
                 seq = e.seq,
                 dialog = e.target,
+            ),
+            "control" if e.alerts => format!(
+                "sequence(&mut h, {seq:?}, false);
+    assert!(h.state().message.is_some(), \"{seq} must reach its control, which alerts without the service it needs\");
+    assert_eq!(h.state().keytips.prefix(), None);",
+                seq = e.seq,
             ),
             "control" => format!(
                 "sequence(&mut h, {seq:?}, false);\n    assert!(h.state().message.is_none() && h.state().toast.is_none(), \"{seq} must route to its control without an error box\");\n    assert_eq!(h.state().keytips.prefix(), None);",
