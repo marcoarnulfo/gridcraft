@@ -3991,7 +3991,7 @@ fn paint_page_breaks(app: &mut SheetApp, p: &Painter, geo: &Geo, wb: &Workbook, 
         app.grid.page_breaks = Some((key, bands.0, bands.1));
     }
     let Some((_, rows, cols)) = &app.grid.page_breaks else { return };
-    let stroke = Stroke::new(1.0, t.text_dim);
+    let stroke = Stroke::new(1.0, t.page_break);
     for seg in page_break_lines(sh, geo, rows, cols, p.clip_rect()) {
         p.extend(egui::Shape::dashed_line(&seg, stroke, BREAK_DASH, BREAK_GAP));
     }

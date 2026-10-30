@@ -28,6 +28,8 @@ pub struct Tokens {
     /// Behind the pages in Page Layout view.
     pub desk: Color32,
     pub gridline: Color32,
+    /// Normal view's dashed page breaks. The grid is white in both themes, so this stays dark.
+    pub page_break: Color32,
     pub header_bg: Color32,
     pub header_text: Color32,
     pub header_line: Color32,
@@ -75,6 +77,7 @@ impl Tokens {
             grid_bg: Color32::WHITE,
             desk: Color32::from_rgb(0xDE, 0xDE, 0xDE),
             gridline: Color32::from_rgb(0xE1, 0xE1, 0xE1),
+            page_break: Color32::from_rgb(0x61, 0x61, 0x61),
             header_bg: Color32::from_rgb(0xF8, 0xF8, 0xF8),
             header_text: Color32::from_rgb(0x42, 0x42, 0x42),
             header_line: Color32::from_rgb(0xD6, 0xD6, 0xD6),
@@ -120,6 +123,7 @@ impl Tokens {
             grid_bg: Color32::WHITE,
             desk: Color32::from_rgb(0x3A, 0x3A, 0x3A),
             gridline: Color32::from_rgb(0xE1, 0xE1, 0xE1),
+            page_break: Color32::from_rgb(0x61, 0x61, 0x61),
             header_bg: Color32::from_rgb(0x30, 0x30, 0x30),
             header_text: Color32::from_rgb(0xCC, 0xCC, 0xCC),
             header_line: Color32::from_rgb(0x45, 0x45, 0x45),
@@ -895,6 +899,28 @@ mod font_binding_tests {
 mod tests {
     use super::*;
     use crate::i18n::Language;
+
+    /// WCAG 2.x contrast ratio between two opaque colours.
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let lum = |c: Color32| {
+            let ch = |v: u8| {
+                let v = f32::from(v) / 255.0;
+                if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * ch(c.r()) + 0.7152 * ch(c.g()) + 0.0722 * ch(c.b())
+        };
+        let (la, lb) = (lum(a), lum(b));
+        (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+    }
+
+    #[test]
+    fn page_breaks_stand_out_from_the_grid_in_both_themes() {
+        // WCAG 1.4.11 asks 3:1 for graphical objects; the grid stays white in dark mode too.
+        for t in [Tokens::light(), Tokens::dark()] {
+            let ratio = contrast(t.page_break, t.grid_bg);
+            assert!(ratio >= 3.0, "page breaks at {ratio:.2}:1 on the grid (dark: {})", t.dark);
+        }
+    }
 
     #[test]
     fn fallback_faces_are_appended_to_every_family() {
